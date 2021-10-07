@@ -280,6 +280,143 @@ class ActivityStackSupervisor(Patch):
         else:
             return 1
 
+class ConnectivityService(Patch):
+
+    patched = 0
+    method_name_sp = ""
+
+    def get_path(self):
+        return "com/android/server/ConnectivityService.smali"
+
+    def patch(self, output, line):
+        if line.startswith(".method"):
+            self.method_name_sp = self.find_method_name(line.strip())
+        if self.method_name_sp == "handleAsyncChannelDisconnected":
+            if ".registers" in line:
+                output.write(line)
+                output.write(os.linesep)
+                output.write("    invoke-static {},"
+                    " Lcom/android/server/am/PreventRunningUtils;"
+                    "->onVpnConnectionDisconnected()V")
+                output.write(os.linesep)
+                self.patched += 1
+                return True
+                
+    def get_patch_count(self):
+        if self.patched > 1:
+            return self.patched
+        else:
+            return 1
+
+class Vpn(Patch):
+
+    patched = 0
+    method_name_sp = ""
+
+    def get_path(self):
+        return "com/android/server/connectivity/Vpn.smali"
+
+    def patch(self, output, line):
+        if line.startswith(".method"):
+            self.method_name_sp = self.find_method_name(line.strip())
+        if self.method_name_sp == "establish":
+            if "Landroid/util/Log;->i(Ljava/lang/String;Ljava/lang/String;)I" in line:
+                output.write(line)
+                output.write(os.linesep)
+                output.write("move-object/from16 v0, p1")
+                output.write(os.linesep)
+                output.write("iget-object v0, v0, Lcom/android/internal/net/VpnConfig;->user:Ljava/lang/String;")
+                output.write(os.linesep)
+                output.write("    invoke-static {v0},"
+                    " Lcom/android/server/am/PreventRunningUtils;"
+                    "->onActivityEstablishVpnConnection(Ljava/lang/String;)V")
+                output.write(os.linesep)
+                self.patched += 1
+                return True
+                
+    def get_patch_count(self):
+        if self.patched > 1:
+            return self.patched
+        else:
+            return 1
+
+class MediaFocusControl(Patch):
+
+    patched = 0
+    method_name_sp = ""
+
+    def get_path(self):
+        return "com/android/server/audio/MediaFocusControl.smali"
+
+    def patch(self, output, line):
+        if line.startswith(".method"):
+            self.method_name_sp = self.find_method_name(line.strip())
+        if self.method_name_sp == "requestAudioFocus":
+            if ".registers" in line:
+                output.write(line)
+                output.write(os.linesep)
+                output.write("invoke-static {}, Landroid/os/Binder;->getCallingUid()I")
+                output.write(os.linesep)
+                output.write("move-result v1")
+                output.write(os.linesep)
+                output.write("invoke-static {}, Landroid/os/Binder;->getCallingPid()I")
+                output.write(os.linesep)
+                output.write("move-result v2")
+                output.write(os.linesep)
+                output.write("    move-object/16 v3 , p5")
+                output.write(os.linesep)
+                output.write("    move-object/16 v4 , p6")
+                output.write(os.linesep)
+                output.write("    invoke-static/range {v1 .. v4},"
+                    " Lcom/android/server/am/PreventRunningUtils;"
+                    "->onActivityRequestAudioFocus(IILjava/lang/String;Ljava/lang/String;)V")
+                output.write(os.linesep)
+                self.patched += 1
+                return True
+        if self.method_name_sp == "abandonAudioFocus":
+            if ".registers" in line:
+                output.write(line)
+                output.write(os.linesep)
+                output.write("invoke-static {}, Landroid/os/Binder;->getCallingUid()I")
+                output.write(os.linesep)
+                output.write("move-result v1")
+                output.write(os.linesep)
+                output.write("invoke-static {}, Landroid/os/Binder;->getCallingPid()I")
+                output.write(os.linesep)
+                output.write("move-result v2")
+                output.write(os.linesep)
+                output.write("    move-object/16 v3 , p2")
+                output.write(os.linesep)
+                output.write("    invoke-static {v1 ,v2, v3},"
+                    " Lcom/android/server/am/PreventRunningUtils;"
+                    "->onActivityAbandonAudioFocus(IILjava/lang/String;)V")
+                output.write(os.linesep)
+                self.patched += 1
+                return True
+        if self.method_name_sp == "removeFocusStackEntryOnDeath":
+            if "Lcom/android/server/audio/FocusRequester;->release()V" in line:
+                output.write(line)
+                output.write(os.linesep)
+                arguments = self.get_method_arguments(line)
+                argument = arguments[0]
+                output.write("    invoke-virtual {%s},"
+                    " Lcom/android/server/audio/FocusRequester;"
+                    "->getClientId()Ljava/lang/String;" %(argument))
+                output.write(os.linesep)
+                output.write("    move-result-object %s" %(argument))
+                output.write(os.linesep)
+                output.write("    invoke-static {%s},"
+                    " Lcom/android/server/am/PreventRunningUtils;"
+                    "->onActivityLostAudioFocusOnDeath(Ljava/lang/String;)V" %(argument))
+                output.write(os.linesep)
+                self.patched += 1
+                return True
+
+    def get_patch_count(self):
+        if self.patched > 1:
+            return self.patched
+        else:
+            return 1
 
 def main():
     from optparse import OptionParser
@@ -295,7 +432,11 @@ def main():
     IntentResolver(options.dir_services).run()
     ActivityStack(options.dir_services).run()
     ActivityStackSupervisor(options.dir_services).run()
+    MediaFocusControl(options.dir_services).run()
+    Vpn(options.dir_services).run()
+    ConnectivityService(options.dir_services).run()
     ActivityManagerService(options.dir_services, options.dir_apk).run()
+    
 
 
 if __name__ == '__main__':
